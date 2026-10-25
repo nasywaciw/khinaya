@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureClass | Login & Registrasi</title>
+</head>
+<body>
+
+    <
+-- Tabel profil pengguna
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  full_name text not null default '',
+  email text,
+  created_at timestamptz not null default now()
+);
+
+-- Aktifkan keamanan baris
+alter table public.profiles enable row level security;
+
+-- Pengguna hanya bisa melihat profil miliknya
+create policy "Users can view own profile"
+on public.profiles
+for select
+to authenticated
+using ((select auth.uid()) = id);
+
+-- Pengguna hanya bisa mengubah profil miliknya
+create policy "Users can update own profile"
+on public.profiles
+for update
+to authenticated
+using ((select auth.uid()) = id)
+with check ((select auth.uid()) = id);
+
+-- Profil dibuat otomatis saat pengguna mendaftar
+create or replace function public.create_user_profile()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.profiles (id, full_name, email)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data ->> 'full_name', ''),
+    new.email
+  );
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function public.create_user_profile();
+
+-- Batasi akses tabel
+revoke all on public.profiles from anon;
+grant select, update on public.profiles to authenticated;
+
+
+</body>
+</html>
